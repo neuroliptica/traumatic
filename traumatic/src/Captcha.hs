@@ -176,7 +176,8 @@ solver_RuCaptcha_handler api_key ans@RuCaptchaAnswer{..} = do
       Just RuCaptchaAnswer{..} ->
         case rucaptcha_status of
           1 -> do
-            putStrLn "[RuCaptcha] CAPCHA_OK: капча решена успешно."
+            putStrLn $ 
+                "[RuCaptcha] CAPCHA_OK: капча решена успешно: " <> rucaptcha_request
             pure rucaptcha_request
           0 ->
             case rucaptcha_request of
