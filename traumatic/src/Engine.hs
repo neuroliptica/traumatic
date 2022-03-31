@@ -38,6 +38,11 @@ base_post = "https://2ch.life/makaba/posting.fcgi?json=1"
 none :: BS.ByteString
 none = ""
 
+{-# INLINE ext #-}
+ext :: String -> String
+ext str = let (ext', name') = break (== '.') . reverse $ str
+          in reverse ext' 
+
 -- * main types.
 data PostMeta = PostMeta
   { board  :: !String
@@ -133,17 +138,20 @@ performPost Post{..} (Solved captcha_id captcha_value) = do
             "comment"         <=> (BS.packChars text)
             ]
 
-    -- From 20 to 60 chars long. TODO: ext from original filename.
-    rand_name <- genFilename >>= pure . (<> ".png")
+    maybeFile <- do
+        case file of
+            Nothing ->
+              pure Nothing
+            Just file' -> do
+              name' <- genFilename >>= pure . (<> ext file')
+              cont <- LB.readFile file'
+              pure $ Just (cont, name')
 
     -- If we have file then attach, otherwise will ignore.
-    file_result <-
-        maybe (pure Nothing) (\cont -> cont >>= pure . Just) 
-            $ (LB.readFile <$> file)
     let
       image_to_post =
-        (partFileRequestBody "formimages[]" rand_name  . RequestBodyLBS)
-            <$> file_result
+        (\(cont, name') -> partFileRequestBody "formimages[]" name' $ RequestBodyLBS cont)
+            <$> maybeFile
     let
       final_body = 
         maybe base_body (\part -> part : base_body) image_to_post
