@@ -1,0 +1,38 @@
+name:                traumatic
+version:             0.1.0.0
+github:              "neuroliptica/traumatic"
+license:             MIT
+author:              "Neuroliptica"
+maintainer:          "@neuroliptica"
+copyright:           "2022 Neuroliptica"
+
+description:        Check README
+dependencies:
+- base >= 4.7 && < 5
+- async
+- aeson
+- http-client
+- http-client-tls
+- bytestring
+- directory
+- random
+- text
+- gi-gtk
+- haskell-gi-base
+- split
+
+library:
+  source-dirs: src
+
+executables:
+  traumatic-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    dependencies:
+    - traumatic
+
