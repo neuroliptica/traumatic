@@ -40,8 +40,7 @@ none = ""
 
 {-# INLINE ext #-}
 ext :: String -> String
-ext str = let (ext', name') = break (== '.') . reverse $ str
-          in reverse ext' 
+ext = ('.':) . reverse . fst . break (== '.') . reverse
 
 -- * main types.
 data PostMeta = PostMeta
