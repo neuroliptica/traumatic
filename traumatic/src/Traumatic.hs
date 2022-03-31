@@ -12,7 +12,6 @@ import qualified Data.ByteString.Internal      as BS
 
 import Data.Char (isDigit)
 
--- import Config
 import Engine
 import Captcha
 import Init
@@ -24,10 +23,22 @@ import Control.Monad
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent       (threadDelay)
 
+import System.Random (randomRIO)
+
 -- proxy utils.
 {-# INLINE add_proxy #-}
 add_proxy :: Proxy -> Post -> Post
 add_proxy proxy' post' = post' { post_proxy = Just proxy' }
+
+data Config = Config
+  { params :: InitParams
+  , static :: Static
+  , banned :: ![Proxy] }
+  deriving Show
+
+{-# INLINE to_banned #-}
+to_banned :: Proxy -> Config -> Config
+to_banned proxy' conf' = conf' { banned = proxy' : (banned conf') }
 
 -- general single post builing.
 buildSinglePost :: InitParams -> Static -> IO Post
@@ -43,7 +54,8 @@ buildSinglePost InitParams{..} Static{..} = do
         Post { text = text' 
              , file = file'
              , post_proxy = Nothing
-             , post_sage  = append_sage }
+             , post_sage  = append_sage
+             }
     case wipe_mode of
       SingleThread ->
         (\(Just thread') ->
@@ -69,8 +81,8 @@ performSinglePost captcha_meta post = do
     maybe (pure $ 404 `with` "ошибка получения капчи.") id $ response
 
 -- posts initialisation.
-init_posts :: Static -> InitParams -> IO [Post]
-init_posts static params = do
+init_posts :: Config -> IO [Post]
+init_posts Config{..} = do
     case proxy_mode params of
       NoProxy ->
         buildSinglePost params static
@@ -79,27 +91,27 @@ init_posts static params = do
         mapM (\p -> (add_proxy p) <$> buildSinglePost params static)
                 $ (proxies static)
 
-main_init :: Static -> InitParams -> IO ()
-main_init static params = do
-    posts <- init_posts static params
-    let
-      posts_to_send =
-        (threads_count params) * length posts
+main_init :: Config -> IO ()
+main_init conf@Config{..} = do
     let
       captcha_meta =
         CaptchaMeta (anti_captcha_type params) (anti_captcha_key params)
 
     replicateM_ (threads_count params)
         $ do
-            mapConcurrently
+            posts <- init_posts conf -- building posts
+            mapConcurrently          -- then launch them concurrently
                 (\post -> do
                     response <- performSinglePost captcha_meta post
-                    putStrLn . show $ response) $ posts
-            putStrLn "[main_thread] sleep for 5 secs."
-            threadDelay 5000000
-    putStrLn "[finished]"
+                    putStrLn . show $ response)
+                        $ posts
+
+            secs <- randomRIO (1, 7)
+            threadDelay $ secs * 1000000
 
 {-# INLINE traumatic #-}
 traumatic :: Static -> InitParams -> IO ()
-traumatic static params = (putStrLn . show $ params) >> main_init static params 
+traumatic static params = do
+    putStrLn . show $ params
+    main_init $ Config params static []
 
