@@ -4,9 +4,7 @@
 {-# LANGUAGE NoMonomorphismRestriction          #-}
 
 module Captcha
-  (
-   -- * main captcha types.
-    CaptchaMeta(..)
+  ( CaptchaMeta(..)
   , Solved(..)
   , getCaptcha
    -- * helper utils.
@@ -14,10 +12,9 @@ module Captcha
   , base_captcha
   , get_random
   , genFilename
-  )
-  where
+  ) where
 
-import Data.Aeson
+import Data.Aeson   (FromJSON(..), decode, withObject, (.:))
 import GHC.Generics (Generic)
 
 import Network.HTTP.Client
@@ -49,9 +46,11 @@ genFilename :: IO String
 genFilename = randomRIO (20, 60) >>= random_name
 
 -- * consts.
+{-# INLINE base_captcha #-}
 base_captcha = "https://2ch.life/api/captcha/2chcaptcha/"
 
 -- * helper utils.
+{-# INLINE perform #-}
 perform :: Request -> IO (Either HttpException LBS.ByteString)
 perform req = do
     manager <- newManager tlsManagerSettings
@@ -94,12 +93,12 @@ getCaptchaId = do
 
 solveCaptcha :: CaptchaMeta -> LBS.ByteString -> IO String
 solveCaptcha CaptchaMeta{..} image = do
-    let no_solver = error . (<> "solver isn't implemented yet.")
+    let no_solver = error . (<> " solver isn't implemented yet.")
     case captcha_type of
         RuCaptcha ->
             solver_RuCaptcha captcha_key image
         XCaptcha ->
-            no_solver "XCaptcha " -- solver_XCaptcha captcha_key image
+            no_solver "XCaptcha" -- solver_XCaptcha captcha_key image
         AntiCaptcha ->
             no_solver "AntiCaptcha" -- solver_AntiCaptcha captcha_key image
         OCR ->

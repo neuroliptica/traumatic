@@ -2,10 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Traumatic
-  (
-    traumatic
-  , buildStatic
-  , Static(..)
+  ( traumatic
   ) where
 
 import Network.HTTP.Client
@@ -15,10 +12,11 @@ import qualified Data.ByteString.Internal      as BS
 
 import Data.Char (isDigit)
 
-import Config
+-- import Config
 import Engine
 import Captcha
 import Init
+import Static
 
 import Prelude hiding (pairs)
 import Control.Monad
@@ -27,45 +25,9 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent       (threadDelay)
 
 -- proxy utils.
-{-# INLINE proxy_pair #-}
-proxy_pair :: String -> (String, String)
-proxy_pair xs = let (port, ip) = break (\x -> x == ':') . reverse $ xs
-                in (reverse . tail $ ip, reverse port)
-
-{-# INLINE proxy_filter #-}
-proxy_filter :: (String, String) -> Maybe (String, Int)
-proxy_filter (ip, port) =
-    if all isDigit port
-      then Just (ip, read port)
-      else Nothing
-
 {-# INLINE add_proxy #-}
 add_proxy :: Proxy -> Post -> Post
 add_proxy proxy' post' = post' { post_proxy = Just proxy' }
-
--- general static data initialization.
-data Static = Static
-  { proxies  :: ![Proxy] 
-  , captions :: ![FilePath] 
-  , pictures :: ![FilePath] }
-  deriving Show
-
-toStatic :: Config -> Static 
-toStatic Config{..} = Static proxy' caption_list pics
-    where pairs = filter (not . null) . map (proxy_filter . proxy_pair) $ proxy_list
-          Just proxy' = map (\(ip, port) -> Proxy (BS.packChars ip) port) <$> sequence pairs
-          pics = map (_pics <>) pics_list
-
-buildStatic :: IO (Maybe Static)
-buildStatic = do
-    config <- initConfig
-    let static_config = toStatic <$> config
-    case static_config of
-      Left msg -> do
-        putStrLn ("[init] Eггог, " <> msg) >> pure Nothing
-      Right static' -> do
-        putStrLn "[init] Ok, начальные данные успешно инициализированы."
-        pure . Just $ static'
 
 -- general single post builing.
 buildSinglePost :: InitParams -> Static -> IO Post

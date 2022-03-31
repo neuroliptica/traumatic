@@ -3,14 +3,11 @@
 {-# LANGUAGE RecordWildCards, DeriveAnyClass, DeriveGeneric #-}
 
 module Engine
-  (
-  -- * main request and response types.
-    PostMeta(..)
+  ( PostMeta(..)
   , Post(..)
   , MakabaResponse(..)
   -- * main perform function.
   , performPost
-  
   , Thread(..)
   , Catalog(..)
   , getThreads
@@ -26,7 +23,7 @@ import qualified Data.ByteString.Lazy          as LB (readFile)
 
 import Data.Text (Text, pack)
 
-import Data.Aeson
+import Data.Aeson   (FromJSON(..), withObject, decode, (.:))
 import GHC.Generics (Generic)
 
 import Captcha
@@ -34,13 +31,14 @@ import Captcha
 import Prelude hiding (file)
 
 -- * consts.
+{-# INLINE base_post #-}
 base_post = "https://2ch.life/makaba/posting.fcgi?json=1"
 
+{-# INLINE none #-}
 none :: BS.ByteString
 none = ""
 
 -- * main types.
-
 data PostMeta = PostMeta
   { board  :: !String
   , thread :: !String }

@@ -2,9 +2,7 @@
 {-# LANGUAGE RecordWildCards           #-}
 
 module Init
-  (
-   -- * Main init datatypes.
-    InitParams(..)
+  ( InitParams(..)
   , AntiCaptchaType(..)
   , WipeMode(..)
   , ProxyMode(..)

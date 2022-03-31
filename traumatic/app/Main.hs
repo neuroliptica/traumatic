@@ -5,6 +5,7 @@ import GUI
 import Traumatic
 
 import Init
+import Static
 
 import System.Environment (getArgs)
 

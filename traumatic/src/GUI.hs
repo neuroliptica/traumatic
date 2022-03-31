@@ -3,7 +3,8 @@
 {-# LANGUAGE NoMonomorphismRestriction          #-}
 
 module GUI
-  where
+  ( guiMain
+  ) where
 
 import GI.Gtk hiding (main, init)
 import GI.Gtk as Gtk (main, init)
@@ -17,6 +18,7 @@ import Data.Char              (isDigit)
 
 import Init 
 import Traumatic
+import Static (Static(..))
 
 -- * consts
 {-# INLINE labelXalignDefault #-}
