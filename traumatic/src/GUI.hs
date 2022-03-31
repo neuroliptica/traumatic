@@ -64,6 +64,11 @@ set_toggled_state master slave = do
           then pure ()
           else toggleButtonSetActive master True
 
+set_toggled_three master s1 s2 s3 = do
+    onToggleButtonToggled master $
+        mapM_ (`toggleButtonSetActive` False)
+            [ s1, s2, s3 ]
+
 {-# INLINE get_field #-}
 get_field :: MonadIO m => Entry -> m Text
 get_field ent = getEntryText ent
@@ -208,6 +213,11 @@ guiMain static = do
         [ captcha_rucaptcha, captcha_xcaptcha, captcha_anticaptcha, captcha_ocr ]
 
     toggleButtonSetActive captcha_rucaptcha True
+
+    set_toggled_three captcha_rucaptcha captcha_anticaptcha captcha_ocr captcha_xcaptcha
+    set_toggled_three captcha_anticaptcha captcha_rucaptcha captcha_xcaptcha captcha_ocr
+    set_toggled_three captcha_xcaptcha captcha_ocr captcha_rucaptcha captcha_anticaptcha
+    set_toggled_three captcha_ocr captcha_anticaptcha captcha_rucaptcha captcha_xcaptcha
     
     ------------
     -- * anti captcha key
@@ -271,7 +281,9 @@ guiMain static = do
               Nothing ->
                 traumatic static final_params )
 
-        concurrently_ (f ()) (pure ())
+        -- TODO: forkIO f so gui wont stack.
+        -- concurrently_ (f ()) (pure ())
+        f ()
 
     widgetShowAll main_win
     Gtk.main

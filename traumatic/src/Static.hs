@@ -9,7 +9,7 @@ module Static
 import Network.HTTP.Client (Proxy(..))
 
 import qualified Data.ByteString as BS (readFile)
-import Data.ByteString.Internal        (packChars, unpackChars)
+import        Data.ByteString.Internal (packChars, unpackChars)
 
 import Data.List.Split (splitOn)
 import Data.List       (isSuffixOf)
