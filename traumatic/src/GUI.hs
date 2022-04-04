@@ -9,7 +9,7 @@ module GUI
 import GI.Gtk hiding (main, init)
 import GI.Gtk as Gtk (main, init)
 
-import Control.Concurrent.Async (concurrently_)
+import Control.Concurrent (forkIO)
 
 import Control.Monad.IO.Class (MonadIO)
 import GHC.Int                (Int32)
@@ -274,16 +274,16 @@ guiMain static = do
               Just t ->
                 if null t || any (not . isDigit) t
                   then do
-                    putStrLn "Ошибка инициализации, тред указан не верно!"
+                    putStrLn "Ошибка инициализации, тред указан не верно."
                     pure ()
                   else do
                     traumatic static final_params
               Nothing ->
                 traumatic static final_params )
 
-        -- TODO: forkIO f so gui wont stack.
-        -- concurrently_ (f ()) (pure ())
-        f ()
+        -- so GUI won't stack
+        forkIO $ f () 
+        pure ()
 
     widgetShowAll main_win
     Gtk.main

@@ -78,17 +78,18 @@ performSinglePost captcha_meta post = do
     case response of
       Nothing ->
         pure $ 404 `with` "ошибка получения капчи."
-      Just resp -> resp
+      Just resp ->
+        resp
 
-init_posts :: Int -> Config -> IO [Post]
-init_posts count Config{..} = do
+init_posts :: Config -> IO [Post]
+init_posts Config{..} = do
     case proxy_mode params of
       NoProxy ->
         buildSinglePost params static
             >>= pure . (: [])
       WithProxy ->
         mapM (\p -> (add_proxy p) <$> buildSinglePost params static)
-            $ take (min (length pr) count) pr
+            $ take (min (length pr) (threads_count params)) pr
                 where pr = proxies static
 
 {-# INLINE sendSingle #-}
@@ -103,12 +104,13 @@ checkBanned MakabaResponse{..} =
       Nothing -> Nothing
       Just prx -> if err_code == 404 then Just prx else Nothing
 
+-- init posts, also overwrite config to filter bad proxies.
 main_init :: Config -> IO Config
 main_init conf@Config{..} = do
     let
       captcha_meta = 
         CaptchaMeta (anti_captcha_type params) (anti_captcha_key params)
-    posts        <- init_posts 10 conf -- 10 threads hardcoded.
+    posts        <- init_posts conf
     bad_response <-
         (map checkBanned) <$> mapConcurrently (sendSingle captcha_meta) posts
     let 
@@ -122,48 +124,22 @@ main_init conf@Config{..} = do
         Static good (captions static) (pictures static)
 
     case proxy_mode params of
-      NoProxy -> pure ()
-      WithProxy -> putStrLn $ "[filter] плохих проксей: " <> (show . length $ banned)
-
-    pure $ conf { static = new_static }
+      NoProxy ->
+        pure ()
+      WithProxy ->
+        putStrLn $ "[filter] плохих проксей: " <> (show . length $ banned)
+    pure $
+        conf { static = new_static }
 
 main_loop :: Config -> IO ()
 main_loop conf = do
     new_conf <- main_init conf
     if (proxy_mode . params $ conf) == WithProxy && (null . proxies . static $ new_conf)
       then die "[quit] все проксичи умерли, помянем."
-      else main_loop new_conf 
-
--- posts initialisation.
-{-
-init_posts :: Config -> IO [Post]
-init_posts Config{..} = do
-    case proxy_mode params of
-      NoProxy ->
-        buildSinglePost params static
-            >>= pure . (:[])
-      WithProxy ->
-        mapM (\p -> (add_proxy p) <$> buildSinglePost params static)
-                $ (proxies static)
-
-main_init :: Config -> IO ()
-main_init conf@Config{..} = do
-    let
-      captcha_meta =
-        CaptchaMeta (anti_captcha_type params) (anti_captcha_key params)
-
-    replicateM_ (threads_count params)
-        $ do
-            posts <- init_posts conf -- building posts
-            mapConcurrently          -- then launch them concurrently
-                (\post -> do
-                    response <- performSinglePost captcha_meta post
-                    putStrLn . show $ response)
-                        $ posts
-
-            secs <- randomRIO (1, 7)
-            threadDelay $ secs * 1000000
--}
+      else do
+        secs <- randomRIO (1, 7) -- sleep for form 1 to 7 seconds.
+        threadDelay $ secs * 1000000
+        main_loop new_conf 
 
 {-# INLINE traumatic #-}
 traumatic :: Static -> InitParams -> IO ()
