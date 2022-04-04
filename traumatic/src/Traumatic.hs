@@ -24,6 +24,7 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent       (threadDelay)
 
 import System.Random (randomRIO)
+import System.Exit   (die)
 
 -- proxy utils.
 {-# INLINE add_proxy #-}
@@ -31,14 +32,9 @@ add_proxy :: Proxy -> Post -> Post
 add_proxy proxy' post' = post' { post_proxy = Just proxy' }
 
 data Config = Config
-  { params :: InitParams
-  , static :: Static
-  , banned :: ![Proxy] }
+  { params  :: InitParams
+  , static  :: Static }
   deriving Show
-
-{-# INLINE to_banned #-}
-to_banned :: Proxy -> Config -> Config
-to_banned proxy' conf' = conf' { banned = proxy' : (banned conf') }
 
 -- general single post builing.
 buildSinglePost :: InitParams -> Static -> IO Post
@@ -64,7 +60,7 @@ buildSinglePost InitParams{..} Static{..} = do
       Shrapnel -> do
         catalog <- getThreads init_board
         case catalog of
-          Nothing -> error "не удалось получить каталог тредов!"
+          Nothing -> die "Фатальная ошибка. Не удалось получить каталог тредов."
           Just cat -> get_random $ _threads cat
                         >>= pure . (\t -> post' { meta = PostMeta init_board (_num t) })
 
@@ -78,9 +74,68 @@ performSinglePost captcha_meta post = do
     let
       with =
         MakabaResponse (post_proxy post)
-    maybe (pure $ 404 `with` "ошибка получения капчи.") id $ response
+
+    case response of
+      Nothing ->
+        pure $ 404 `with` "ошибка получения капчи."
+      Just resp -> resp
+
+init_posts :: Int -> Config -> IO [Post]
+init_posts count Config{..} = do
+    case proxy_mode params of
+      NoProxy ->
+        buildSinglePost params static
+            >>= pure . (: [])
+      WithProxy ->
+        mapM (\p -> (add_proxy p) <$> buildSinglePost params static)
+            $ take (min (length pr - 1) count) pr
+                where pr = proxies static
+
+{-# INLINE sendSingle #-}
+sendSingle captcha_meta post = do
+    resp <- performSinglePost captcha_meta post
+    putStrLn . show $ resp
+    pure resp
+
+{-# INLINE checkBanned #-}
+checkBanned MakabaResponse{..} =
+    case current_proxy of
+      Nothing -> Nothing
+      Just prx -> if err_code == 404 then Just prx else Nothing
+
+main_init :: Config -> IO Config
+main_init conf@Config{..} = do
+    let
+      captcha_meta = 
+        CaptchaMeta (anti_captcha_type params) (anti_captcha_key params)
+    posts        <- init_posts 10 conf -- 10 threads hardcoded.
+    bad_response <-
+        (map checkBanned) <$> mapConcurrently (sendSingle captcha_meta) posts
+    let 
+      (Just banned) = 
+        sequence . filter (not . null) $ bad_response
+    let
+      good =
+        filter (not . (`elem` banned)) (proxies static)
+    let
+      new_static =
+        Static good (captions static) (pictures static)
+
+    case proxy_mode params of
+      NoProxy -> pure ()
+      WithProxy -> putStrLn $ "[filter] плохих проксей: " <> (show . length $ banned)
+
+    pure $ conf { static = new_static }
+
+main_loop :: Config -> IO ()
+main_loop conf@Config{..} = do
+    new_conf <- main_init conf
+    if proxy_mode params == WithProxy && (length . proxies $ static) == 0
+      then die "[quit] все проксичи были забанены, помянем."
+      else main_loop new_conf
 
 -- posts initialisation.
+{-
 init_posts :: Config -> IO [Post]
 init_posts Config{..} = do
     case proxy_mode params of
@@ -108,10 +163,11 @@ main_init conf@Config{..} = do
 
             secs <- randomRIO (1, 7)
             threadDelay $ secs * 1000000
+-}
 
 {-# INLINE traumatic #-}
 traumatic :: Static -> InitParams -> IO ()
 traumatic static params = do
     putStrLn . show $ params
-    main_init $ Config params static []
+    main_loop $ Config params static 
 
