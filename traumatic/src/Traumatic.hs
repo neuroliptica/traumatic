@@ -88,7 +88,7 @@ init_posts count Config{..} = do
             >>= pure . (: [])
       WithProxy ->
         mapM (\p -> (add_proxy p) <$> buildSinglePost params static)
-            $ take (min (length pr - 1) count) pr
+            $ take (min (length pr) count) pr
                 where pr = proxies static
 
 {-# INLINE sendSingle #-}
@@ -128,11 +128,11 @@ main_init conf@Config{..} = do
     pure $ conf { static = new_static }
 
 main_loop :: Config -> IO ()
-main_loop conf@Config{..} = do
+main_loop conf = do
     new_conf <- main_init conf
-    if proxy_mode params == WithProxy && (length . proxies $ static) == 0
-      then die "[quit] все проксичи были забанены, помянем."
-      else main_loop new_conf
+    if (proxy_mode . params $ conf) == WithProxy && (null . proxies . static $ new_conf)
+      then die "[quit] все проксичи умерли, помянем."
+      else main_loop new_conf 
 
 -- posts initialisation.
 {-
