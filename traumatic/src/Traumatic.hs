@@ -5,10 +5,7 @@ module Traumatic
   ( traumatic
   ) where
 
-import Network.HTTP.Client
-
-import qualified Data.ByteString.Lazy.Internal as LBS
-import qualified Data.ByteString.Internal      as BS
+import Network.HTTP.Client (Proxy(..))
 
 import Data.Char (isDigit)
 
@@ -18,7 +15,6 @@ import Init
 import Static
 
 import Prelude hiding (pairs)
-import Control.Monad
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent       (threadDelay)
@@ -98,11 +94,16 @@ sendSingle captcha_meta post = do
     putStrLn . show $ resp
     pure resp
 
+-- makaba response codes:
+{-# INLINE badCodes #-}
+badCodes = [
+        404 -- general fail code
+    ]
+
 {-# INLINE checkBanned #-}
 checkBanned MakabaResponse{..} =
-    case current_proxy of
-      Nothing -> Nothing
-      Just prx -> if err_code == 404 then Just prx else Nothing
+    maybe Nothing (\p -> if err_code `elem` badCodes then Just p else Nothing)
+        current_proxy
 
 -- init posts, also overwrite config to filter bad proxies.
 main_init :: Config -> IO Config
@@ -137,7 +138,7 @@ main_loop conf = do
     if (proxy_mode . params $ conf) == WithProxy && (null . proxies . static $ new_conf)
       then die "[quit] все проксичи умерли, помянем."
       else do
-        secs <- randomRIO (1, 7) -- sleep for form 1 to 7 seconds.
+        secs <- randomRIO (1, 7) -- sleep for from 1 to 7 seconds.
         threadDelay $ secs * 1000000
         main_loop new_conf 
 

@@ -59,7 +59,7 @@ instance Show InitParams where
         "\n|\tС картинкой = " <> (if append_pic then "Да." else "Нет.") <>
         "\n|\tАнти капча = " <> show anti_captcha_type <>
         "\n|\tПрокси = " <> show proxy_mode <>
-        "\n|\tКол-во потоков на одну проксю = " <> show threads_count <>
+        "\n|\tПотоков = " <> show threads_count <>
         "\n-----------------------------------"
 
 parseArg :: String -> Maybe (String, String)

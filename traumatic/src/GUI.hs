@@ -145,7 +145,7 @@ guiMain static = do
     containerAdd first_framebox proxy_frame 
 
     proxy_NoProxy <- checkButtonNewWithLabel "Без проксей"
-    proxy_WithProxy <- checkButtonNewWithLabel "Взякнуть из ./res/proxy.conf"
+    proxy_WithProxy <- checkButtonNewWithLabel "Взять из ./res/proxy.conf"
 
     mapM_ (containerAdd proxy_framebox)
         [ proxy_NoProxy, proxy_WithProxy ]

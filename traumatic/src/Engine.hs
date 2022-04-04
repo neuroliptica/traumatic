@@ -162,7 +162,7 @@ performPost Post{..} (Solved captcha_id captcha_value) = do
       with =
         MakabaResponse post_proxy
     -- Check 2ch server response.
-    either (\_ -> pure $ 404 `with` "запрос не удался, сервер вернул ошипку.")
+    either (\_ -> pure $ 404 `with` "запрос не удался, сервер вернул ошибку.")
            (postResponseHandler with)
                $ response
 
