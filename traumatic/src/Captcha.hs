@@ -58,9 +58,16 @@ perform req = do
 
 -- * main captcha types.
 data CaptchaMeta = CaptchaMeta
-  { captcha_type :: AntiCaptchaType
-  , captcha_key  :: !String }
-  deriving Show
+  { captcha_type  :: AntiCaptchaType
+  , captcha_key   :: !String
+  , captcha_proxy :: Maybe Proxy }
+
+instance Show CaptchaMeta where
+    show CaptchaMeta{..} =
+        case captcha_proxy of
+          Nothing -> "[no_proxy]: "
+          Just (Proxy{..}) ->
+            "[" <> (BS.unpackChars proxyHost) <> ":" <> show proxyPort <> "]: "
 
 -- 2ch server get captcha answer.
 data MakabaCaptchaAnswer = MakabaCaptchaAnswer
@@ -80,10 +87,10 @@ instance FromJSON MakabaCaptchaAnswer where
         <*> v .: "result"
         <*> v .: "type"
 
-getCaptchaId :: IO (Maybe MakabaCaptchaAnswer)
-getCaptchaId = do
+getCaptchaId :: Maybe Proxy -> IO (Maybe MakabaCaptchaAnswer)
+getCaptchaId proxy' = do
     request <- parseRequest $ base_captcha <> "id"
-    response <- perform request
+    response <- perform $ request { proxy = proxy' }
     let
       result = 
         (\x -> decode x :: Maybe MakabaCaptchaAnswer)
@@ -92,11 +99,11 @@ getCaptchaId = do
            (pure . id) $ result
 
 solveCaptcha :: CaptchaMeta -> LBS.ByteString -> IO String
-solveCaptcha CaptchaMeta{..} image = do
+solveCaptcha meta image = do
     let no_solver = error . (<> " solver isn't implemented yet.")
-    case captcha_type of
+    case captcha_type meta of
         RuCaptcha ->
-            solver_RuCaptcha captcha_key image
+            solver_RuCaptcha meta image
         XCaptcha ->
             no_solver "XCaptcha" -- solver_XCaptcha captcha_key image
         AntiCaptcha ->
@@ -106,12 +113,12 @@ solveCaptcha CaptchaMeta{..} image = do
 
 getCaptcha :: CaptchaMeta -> IO (Maybe Solved)
 getCaptcha meta = do
-    id_answer <- getCaptchaId
+    id_answer <- getCaptchaId (captcha_proxy meta)
     case id_answer of
       Nothing -> pure Nothing    
       Just MakabaCaptchaAnswer{..} -> do
         request <- parseRequest $ base_captcha <> "show?id=" <> captcha_id
-        result <- perform request
+        result <- perform (request { proxy = (captcha_proxy meta) })
                     >>= pure . (solveCaptcha meta <$>)
         either (\_ -> pure Nothing)
                (\res -> res >>= pure . Just . Solved captcha_id)
@@ -131,17 +138,16 @@ instance FromJSON RuCaptchaAnswer where
         <*> v .: "request"
 
 -- send captcha to solver
-solver_RuCaptcha_sendPost :: String -> LBS.ByteString -> IO (Maybe RuCaptchaAnswer)
-solver_RuCaptcha_sendPost api_key image = do
+solver_RuCaptcha_sendPost :: CaptchaMeta -> LBS.ByteString -> IO (Maybe RuCaptchaAnswer)
+solver_RuCaptcha_sendPost meta image = do
     let body = [
             partBS "method" "post",
-            partBS "key" $ BS.packChars api_key,
-            partBS "json" "1",
+            partBS "key" . BS.packChars . captcha_key $ meta,
+            partBS "json"   "1",
             partFileRequestBody "file" "file" $ RequestBodyLBS image
             ]
-    request <- parseRequest "http://rucaptcha.com/in.php"
-                    >>= formDataBody body 
-    response <- perform request
+    request <- parseRequest "http://rucaptcha.com/in.php" >>= formDataBody body 
+    response <- perform $ request { proxy = (captcha_proxy meta) }
     let
       result = 
         (\x -> decode x :: Maybe RuCaptchaAnswer)
@@ -150,13 +156,14 @@ solver_RuCaptcha_sendPost api_key image = do
            (pure . id) $ result
 
 -- check solver status.
-solver_RuCaptcha_sendGet :: String -> String -> IO (Maybe RuCaptchaAnswer)
-solver_RuCaptcha_sendGet api_key rucaptcha_id = do
+solver_RuCaptcha_sendGet :: CaptchaMeta -> String -> IO (Maybe RuCaptchaAnswer)
+solver_RuCaptcha_sendGet meta rucaptcha_id = do
     let
       link = 
         "http://rucaptcha.com/res.php?key=" <>
-         api_key <> "&action=get&json=1&id="<> rucaptcha_id
-    response <- parseRequest link >>= perform
+         (captcha_key meta) <> "&action=get&json=1&id=" <> rucaptcha_id
+    request <- parseRequest link 
+    response <- perform $ request { proxy = (captcha_proxy meta) }
     let
       result =
         (\x -> decode x :: Maybe RuCaptchaAnswer)
@@ -165,46 +172,46 @@ solver_RuCaptcha_sendGet api_key rucaptcha_id = do
            (pure . id) $ result
 
 -- main check loop.
-solver_RuCaptcha_handler :: String -> RuCaptchaAnswer -> IO String
-solver_RuCaptcha_handler api_key ans@RuCaptchaAnswer{..} = do
-    response <- solver_RuCaptcha_sendGet api_key rucaptcha_request
+solver_RuCaptcha_handler :: CaptchaMeta -> RuCaptchaAnswer -> IO String
+solver_RuCaptcha_handler meta ans@RuCaptchaAnswer{..} = do
+    response <- solver_RuCaptcha_sendGet meta rucaptcha_request
     let solver_fail = pure "empty"
     case response of
       Nothing -> do
-        putStrLn "[RuCaptcha]: еггог, солвер выдал неожиданный ответ!!"
+        putStrLn $ show meta <> "error, солвер выдал неожиданный ответ."
         solver_fail
       Just RuCaptchaAnswer{..} ->
         case rucaptcha_status of
           1 -> do
             putStrLn $ 
-                "[RuCaptcha] CAPCHA_OK: капча решена успешно: " <> rucaptcha_request
+                show meta <> "CAPCHA_OK: капча решена успешно: " <> rucaptcha_request
             pure rucaptcha_request
           0 ->
             case rucaptcha_request of
               "CAPCHA_NOT_READY" ->
-                solver_RuCaptcha_handler api_key ans 
+                solver_RuCaptcha_handler meta ans 
               "ERROR_WRONG_CAPTCHA_ID" -> do
                 putStrLn $
-                    "[RuCaptcha] SOLVER_FAILED: деньги кончились походу..."
+                    show meta <> "SOLVER_FAILED: деньги кончились походу..."
                 solver_fail
               "ERROR_WRONG_USER_KEY" -> do
                 putStrLn $
-                    "[RuCaptcha] KEY_FAILED: невалидный ключ."
+                    show meta <> "KEY_FAILED: невалидный ключ."
                 solver_fail
               other -> do
                 putStrLn $
-                    "[RuCaptcha] " <> other <> ": макак обхитрил индусов."
+                    show meta <> other <> ": макак обхитрил индусов."
                 solver_fail
           _ -> do
             putStrLn $
-                "[RuCaptcha] " <> rucaptcha_request <> ": неожиданный код, остановочка."
+                show meta <> rucaptcha_request <> ": неожиданный код, остановочка."
             solver_fail
 
-solver_RuCaptcha :: String -> LBS.ByteString -> IO String
-solver_RuCaptcha api_key image = do
-    post_answer <- solver_RuCaptcha_sendPost api_key image
+solver_RuCaptcha :: CaptchaMeta -> LBS.ByteString -> IO String
+solver_RuCaptcha meta image = do
+    post_answer <- solver_RuCaptcha_sendPost meta image
     maybe (pure "failed")
-          (\ans -> putStrLn "[RuCaptcha]: капча отправлена на решение..."
-                        >> solver_RuCaptcha_handler api_key ans)
+          (\ans -> putStrLn (show meta <> "капча отправлена на решение...")
+                        >> solver_RuCaptcha_handler meta ans)
                             $ post_answer
 

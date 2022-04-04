@@ -62,8 +62,12 @@ buildSinglePost InitParams{..} Static{..} = do
 
 -- performing.
 performSinglePost :: CaptchaMeta -> Post -> IO MakabaResponse
-performSinglePost captcha_meta post = do
-    captcha <- getCaptcha captcha_meta
+performSinglePost captcha_meta' post = do
+    let
+      captcha_meta =
+        captcha_meta' { captcha_proxy = (post_proxy post) }
+
+    captcha <- getCaptcha captcha_meta 
     let
       response =
         performPost post <$> captcha
@@ -110,7 +114,7 @@ main_init :: Config -> IO Config
 main_init conf@Config{..} = do
     let
       captcha_meta = 
-        CaptchaMeta (anti_captcha_type params) (anti_captcha_key params)
+        CaptchaMeta (anti_captcha_type params) (anti_captcha_key params) Nothing
     posts        <- init_posts conf
     bad_response <-
         (map checkBanned) <$> mapConcurrently (sendSingle captcha_meta) posts
