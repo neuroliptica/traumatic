@@ -27,7 +27,7 @@ labelXalignDefault = 0.02
 
 {-# INLINE imageHeader #-}
 imageHeader :: String
-imageHeader = "./res/lain.png"
+imageHeader = "./res/rozen.png"
 
 -- * helper utils.
 main_window :: MonadIO m => Int32 -> Int32 -> m Window
@@ -190,9 +190,11 @@ guiMain static = do
     -- * timing settings 
 
     main_delay_frame <- frameNew Nothing
-    main_delay_framebox <- boxNew OrientationHorizontal 5
+    main_delay_framebox <- boxNew OrientationHorizontal 2
     containerAdd main_delay_frame main_delay_framebox
     containerAdd first_framebox main_delay_frame
+
+    boxSetHomogeneous main_delay_framebox True
 
     -- threads
 
