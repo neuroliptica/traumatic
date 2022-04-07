@@ -46,20 +46,24 @@ data InitParams = InitParams
   , append_sage       :: !Bool
   , append_pic        :: !Bool
   , threads_count     :: !Int
+  , times_count       :: !Int
+  , delay_count       :: !Int
   , anti_captcha_key  :: !String }
 
 instance Show InitParams where
     show InitParams{..} = 
-        "[InitParams]:" <>
-        "\n-----------------------------------" <>
-        "\n|\tРежим = " <> show wipe_mode <>
-        "\n|\tДоска = " <> init_board <>
-        "\n|\tТред = " <> maybe ("Все и понемношку.") id init_thread <>
-        "\n|\tСажа = " <> (if append_sage then "Да." else "Нет.") <>
-        "\n|\tС картинкой = " <> (if append_pic then "Да." else "Нет.") <>
-        "\n|\tАнти капча = " <> show anti_captcha_type <>
-        "\n|\tПрокси = " <> show proxy_mode <>
-        "\n|\tПотоков = " <> show threads_count <>
+        "[InitParams]:"                                                   <>
+        "\n-----------------------------------"                           <>
+        "\n|\tРежим = "        <> show wipe_mode                          <>
+        "\n|\tДоска = "        <> init_board                              <>
+        "\n|\tТред = "         <> maybe ("Вся доска.") id init_thread     <>
+        "\n|\tСажа = "         <> (if append_sage then "Да." else "Нет.") <>
+        "\n|\tС картинкой = "  <> (if append_pic then "Да." else "Нет.")  <>
+        "\n|\tАнти капча = "   <> show anti_captcha_type                  <>
+        "\n|\tПрокси = "       <> show proxy_mode                         <>
+        "\n|\tПотоков = "      <> show threads_count                      <>
+        "\n|\tИтераций = "     <> show times_count                        <>
+        "\n|\tПерерыв сек. = " <> show delay_count                        <>
         "\n-----------------------------------"
 
 parseArg :: String -> Maybe (String, String)
@@ -83,6 +87,8 @@ defaultInit = InitParams
               , append_sage       = False
               , append_pic        = False
               , threads_count     = 1
+              , times_count       = 1
+              , delay_count       = 0
               , anti_captcha_key  = "no key"
               -- вайпать весь b по дефолту.
               , wipe_mode   = Shrapnel
@@ -101,14 +107,16 @@ instance Semigroup InitParams where
         let choose_field = (\x -> comp x init1 init2)
         in InitParams
             { anti_captcha_type = choose_field anti_captcha_type
-            , wipe_mode = choose_field wipe_mode
-            , proxy_mode = choose_field proxy_mode 
-            , init_board = choose_field init_board
-            , init_thread = choose_field init_thread 
-            , append_sage = choose_field append_sage
-            , append_pic = choose_field append_pic
-            , threads_count = choose_field threads_count
-            , anti_captcha_key = choose_field anti_captcha_key }
+            , wipe_mode         = choose_field wipe_mode
+            , proxy_mode        = choose_field proxy_mode 
+            , init_board        = choose_field init_board
+            , init_thread       = choose_field init_thread 
+            , append_sage       = choose_field append_sage
+            , append_pic        = choose_field append_pic
+            , threads_count     = choose_field threads_count
+            , times_count       = choose_field times_count
+            , delay_count       = choose_field delay_count
+            , anti_captcha_key  = choose_field anti_captcha_key }
 
 instance Monoid InitParams where
     mempty = defaultInit
@@ -138,6 +146,12 @@ appendInitKey (key, value) =
                      $ (readMaybe value :: Maybe Bool)
       "threads" ->
         maybe mempty (\x -> mempty { threads_count = x } )
+                     $ (readMaybe value :: Maybe Int)
+      "times" ->
+        maybe mempty (\x -> mempty { times_count = x } )
+                     $ (readMaybe value :: Maybe Int)
+      "delay" ->
+        maybe mempty (\x -> mempty { delay_count = x } )
                      $ (readMaybe value :: Maybe Int)
       "key" ->
         mempty { anti_captcha_key = value }

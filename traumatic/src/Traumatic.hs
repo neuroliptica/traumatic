@@ -1,5 +1,5 @@
-{-# OPTIONS_GHC -O2          #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -O2 -fno-warn-missing-fields #-}
+{-# LANGUAGE RecordWildCards                 #-}
 
 module Traumatic
   ( traumatic
@@ -138,13 +138,27 @@ main_init conf@Config{..} = do
 
 main_loop :: Config -> IO ()
 main_loop conf = do
-    new_conf <- main_init conf
-    if (proxy_mode . params $ conf) == WithProxy && (null . proxies . static $ new_conf)
+    if (<= 0) . times_count . params $ conf
+      then die "[quit] завершено."
+      else pure ()
+
+    new_conf <- main_init conf -- init and post.
+
+    if (null . proxies . static $ new_conf) && (proxy_mode . params $ conf) == WithProxy 
       then die "[quit] все проксичи умерли, помянем."
       else do
-        secs <- randomRIO (1, 7) -- sleep for from 1 to 7 seconds.
+        let
+          base_delay =
+            delay_count . params $ conf
+        secs <- randomRIO (base_delay, base_delay + 3)
         threadDelay $ secs * 1000000
-        main_loop new_conf 
+
+        let
+          new_params =
+            (params conf) { times_count = (\x -> x - 1) . times_count . params $ conf }
+
+        main_loop $
+            new_conf { params = new_params }
 
 {-# INLINE traumatic #-}
 traumatic :: Static -> InitParams -> IO ()

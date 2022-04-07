@@ -33,8 +33,12 @@ $ sudo apt-get update && sudo apt-get install gtk+3.0
                 Default: --sage=False.
          --pics=<bool> - клеить ли картинку. False - нет; True - да. 
                 Default: --pics=False.
-         --threads=<num> - кол-во потоков на одну проксю. 
+         --threads=<num> - кол-во потоков. 
                 Default: --threads=1.
+         --times=<num> - кол-во итераций. 
+                Default: --times=1.
+         --delay=<num> - перерыв между итерациями в секундах. 
+                Default: --delay=0.
          --key=<key> - ключ для сервиса антикапчи, если не OCR. 
                 Default: --key= , то бишь никакой.
          -h, --help - показать это сообщение.

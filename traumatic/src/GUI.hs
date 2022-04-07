@@ -73,9 +73,9 @@ set_toggled_three master s1 s2 s3 = do
 get_field :: MonadIO m => Entry -> m Text
 get_field ent = getEntryText ent
 
-{-# INLINE get_threads #-}
-get_threads :: MonadIO m => SpinButton -> m Int
-get_threads spin = do
+{-# INLINE get_spin #-}
+get_spin :: MonadIO m => SpinButton -> m Int
+get_spin spin = do
     count <- spinButtonGetValue spin
     pure (round count :: Int)
 
@@ -187,15 +187,43 @@ guiMain static = do
     ------------
 
     ------------
-    -- * threads settings
+    -- * timing settings 
 
-    thread_frame <- frameNew $ Just " Потоки (max 500):"
+    main_delay_frame <- frameNew Nothing
+    main_delay_framebox <- boxNew OrientationHorizontal 5
+    containerAdd main_delay_frame main_delay_framebox
+    containerAdd first_framebox main_delay_frame
+
+    -- threads
+
+    thread_frame <- frameNew $ Just " Потоки (max 500): "
     thread_framebox <- boxNew OrientationVertical 1
     containerAdd thread_frame thread_framebox
-    containerAdd first_framebox thread_frame
+    containerAdd main_delay_framebox thread_frame
 
     thread_spin <- spinButtonNewWithRange 1 500 1
     containerAdd thread_framebox thread_spin
+
+    -- count
+
+    count_frame <- frameNew $ Just " Кол-во проходов: "
+    count_framebox <- boxNew OrientationVertical 1
+    containerAdd count_frame count_framebox
+
+    count_spin <- spinButtonNewWithRange 1 1000 1
+    containerAdd count_framebox count_spin
+    containerAdd main_delay_framebox count_frame 
+
+    -- delay
+
+    delay_frame <- frameNew $ Just " Перерыв (сек): "
+    delay_framebox <- boxNew OrientationVertical 1
+    containerAdd delay_frame delay_framebox
+    containerAdd main_delay_framebox delay_frame
+
+    delay_spin <- spinButtonNewWithRange 0 1000 1
+    containerAdd delay_framebox delay_spin 
+
     ------------
     -- * anti captcha settings
 
@@ -231,10 +259,23 @@ guiMain static = do
     containerAdd key_framebox key_entry
     ------------
 
+
+    -- * buttons frame
+    buttons_frame <- frameNew Nothing
+    buttons_framebox <- boxNew OrientationHorizontal 5
+    boxSetHomogeneous buttons_framebox True
+
+    containerAdd buttons_frame buttons_framebox
+    containerAdd first_framebox buttons_frame
+
     -- * start button
 
     main_button <- buttonNewWithLabel "Пуск"
-    containerAdd first_framebox main_button
+    containerAdd buttons_framebox main_button
+
+    -- * stop button
+    --stop_button <- buttonNewWithLabel "Стоп"
+    --containerAdd buttons_framebox stop_button
     -----------------
 
     onButtonClicked main_button $ do
@@ -247,7 +288,9 @@ guiMain static = do
                 <*> pure Nothing
                 <*> toggleButtonGetActive settings_sage
                 <*> toggleButtonGetActive settings_pics
-                <*> get_threads thread_spin
+                <*> get_spin thread_spin
+                <*> get_spin count_spin
+                <*> get_spin delay_spin
                 <*> (get_field key_entry >>= pure . unpack)
 
         params' <-
