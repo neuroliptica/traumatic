@@ -20,6 +20,7 @@ dependencies:
 - gi-gtk
 - haskell-gi-base
 - split
+- mtl
 
 library:
   source-dirs: src
