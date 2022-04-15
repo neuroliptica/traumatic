@@ -27,7 +27,7 @@ import qualified Data.ByteString               as B
 
 import System.Random     (randomRIO)
 
-import Control.Monad     (replicateM)
+import Control.Monad     (replicateM, join)
 import Control.Exception (try)
 
 import Init (AntiCaptchaType(..)) 
@@ -49,12 +49,48 @@ genFilename = randomRIO (20, 60) >>= random_name
 {-# INLINE base_captcha #-}
 base_captcha = "https://2ch.life/api/captcha/2chcaptcha/"
 
--- * helper utils.
-{-# INLINE perform #-}
+data AuthProxy = AuthProxy
+  { authIp   :: BS.ByteString
+  , authName :: BS.ByteString
+  , authPass :: BS.ByteString }
+  deriving Show
+
+-- | proxy settings
+--
+enableAuth :: Proxy -> Maybe AuthProxy
+enableAuth Proxy{..} =
+    let address = BS.unpackChars proxyHost
+    in do
+        let (credits, ip) = break (== '@') address
+        (login, (_:pass)) <- do
+                if null ip
+                    then Nothing
+                    else Just $ break (== ':') credits
+
+        pure $ AuthProxy (BS.packChars . tail $ ip)
+                         (BS.packChars login)
+                         (BS.packChars pass)
+
+applyAuth :: AuthProxy -> Request -> Request
+applyAuth AuthProxy{..} req =
+    let
+        validProxy = (\p -> p { proxyHost = authIp }) <$> proxy req
+        req' = applyBasicProxyAuth authName authPass req
+    in
+        req' { proxy = validProxy }
+
+-- | general requests settings
+--
 perform :: Request -> IO (Maybe LBS.ByteString)
 perform req = do
     manager <- newManager tlsManagerSettings
-    response <- try (httpLbs req manager >>= pure . responseBody)
+    let req' = if null . proxy $ req
+                then req
+                else maybe req
+                           (\auth -> applyAuth auth req)
+                           (join $ enableAuth <$> proxy req)
+
+    response <- try (httpLbs req' manager >>= pure . responseBody)
                      :: IO (Either HttpException LBS.ByteString)
 
     either (\_ -> pure Nothing)
