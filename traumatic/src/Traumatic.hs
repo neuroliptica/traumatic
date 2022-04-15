@@ -1,13 +1,11 @@
-{-# OPTIONS_GHC -O2 -fno-warn-missing-fields #-}
-{-# LANGUAGE RecordWildCards                 #-}
+{-# OPTIONS_GHC -O2          #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Traumatic
   ( traumatic
   ) where
 
 import Network.HTTP.Client (Proxy(..))
-
-import Data.Char (isDigit)
 
 import Engine
 import Captcha
@@ -19,150 +17,172 @@ import Prelude hiding (pairs)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent       (threadDelay)
 
+import Control.Monad.Reader
+
 import System.Random (randomRIO)
 import System.Exit   (die)
 
--- proxy utils.
 {-# INLINE add_proxy #-}
 add_proxy :: Proxy -> Post -> Post
 add_proxy proxy' post' = post' { post_proxy = Just proxy' }
 
-data Config = Config
-  { params  :: InitParams
-  , static  :: Static }
-  deriving Show
-
--- general single post builing.
-buildSinglePost :: InitParams -> Static -> IO Post
-buildSinglePost InitParams{..} Static{..} = do
-    text' <- get_random captions
-    file' <- if length pictures > 0 && append_pic
-                then
-                  get_random pictures >>= pure . Just
-                else
-                  pure Nothing 
-    let
-      post' =
-        Post { text = text' 
-             , file = file'
-             , post_proxy = Nothing
-             , post_sage  = append_sage
-             }
-    case wipe_mode of
-      SingleThread ->
-        (\(Just thread') ->
-            pure $ post' { meta = PostMeta init_board thread' })
-                $ init_thread
-      Shrapnel -> do
-        catalog <- getThreads init_board
-        case catalog of
-          Nothing -> die "Фатальная ошибка. Не удалось получить каталог тредов."
-          Just cat -> get_random $ _threads cat
-                        >>= pure . (\t -> post' { meta = PostMeta init_board (_num t) })
-
--- performing.
-performSinglePost :: CaptchaMeta -> Post -> IO MakabaResponse
-performSinglePost captcha_meta' post = do
-    let
-      captcha_meta =
-        captcha_meta' { captcha_proxy = (post_proxy post) }
-
-    captcha <- getCaptcha captcha_meta 
-    let
-      response =
-        performPost post <$> captcha
-    let
-      with =
-        MakabaResponse (post_proxy post)
-
-    case response of
-      Nothing ->
-        pure $ 404 `with` "ошибка получения капчи."
-      Just resp ->
-        resp
-
-init_posts :: Config -> IO [Post]
-init_posts Config{..} = do
-    case proxy_mode params of
-      NoProxy ->
-        buildSinglePost params static
-            >>= pure . (: [])
-      WithProxy ->
-        mapM (\p -> (add_proxy p) <$> buildSinglePost params static)
-            $ take (min (length pr) (threads_count params)) pr
-                where pr = proxies static
-
-{-# INLINE sendSingle #-}
-sendSingle captcha_meta post = do
-    resp <- performSinglePost captcha_meta post
-    putStrLn . show $ resp
-    pure resp
-
--- makaba response codes:
-{-# INLINE badCodes #-}
 badCodes = [
-        404 -- general fail code
+        404 -- general fail code.
     ]
 
-{-# INLINE checkBanned #-}
-checkBanned MakabaResponse{..} =
-    maybe Nothing (\p -> if err_code `elem` badCodes then Just p else Nothing)
-        current_proxy
+data Env = Env InitParams Static
+    deriving Show
 
--- init posts, also overwrite config to filter bad proxies.
-main_init :: Config -> IO Config
-main_init conf@Config{..} = do
-    let
-      captcha_meta = 
-        CaptchaMeta (anti_captcha_type params) (anti_captcha_key params) Nothing
-    posts        <- init_posts conf
-    bad_response <-
-        (map checkBanned) <$> mapConcurrently (sendSingle captcha_meta) posts
-    let 
-      (Just banned) = 
-        sequence . filter (not . null) $ bad_response
-    let
-      good =
-        filter (not . (`elem` banned)) (proxies static)
-    let
-      new_static =
-        Static good (captions static) (pictures static)
+type ThreadNum = String
 
-    case proxy_mode params of
-      NoProxy ->
-        pure ()
-      WithProxy ->
-        putStrLn $ "[filter] плохих проксей: " <> (show . length $ banned)
-    pure $
-        conf { static = new_static }
+getCaptions (Env _ Static {..}) = captions
+getPictures (Env _ Static {..}) = pictures
+getProxies (Env _ Static {..}) = proxies
 
-main_loop :: Config -> IO ()
-main_loop conf = do
-    if (<= 0) . times_count . params $ conf
-      then die "[quit] завершено."
-      else pure ()
+isNeedAppendPics (Env InitParams {..} _) = append_pic
+isNeedAppendSage (Env InitParams {..} _) = append_sage
 
-    new_conf <- main_init conf -- init and post.
+getBoard (Env InitParams {..} _) = init_board
+getThread (Env InitParams {..} _) = init_thread
 
-    if (null . proxies . static $ new_conf) && (proxy_mode . params $ conf) == WithProxy 
-      then die "[quit] все проксичи умерли, помянем."
-      else do
-        let
-          base_delay =
-            delay_count . params $ conf
-        secs <- randomRIO (base_delay, base_delay + 3)
-        threadDelay $ secs * 1000000
+getWipeMode (Env InitParams {..} _) = wipe_mode
+getProxyMode (Env InitParams {..} _) = proxy_mode
 
-        let
-          new_params =
-            (params conf) { times_count = (\x -> x - 1) . times_count . params $ conf }
+getThreadsCount (Env InitParams {..} _) = threads_count
 
-        main_loop $
-            new_conf { params = new_params }
+getAntiCaptchaKey (Env InitParams {..} _) = anti_captcha_key
+getAntiCaptchaType (Env InitParams {..} _) = anti_captcha_type
+
+getTimesCount (Env InitParams {..} _) = times_count
+getDelayCount (Env InitParams {..} _) = delay_count
+
+createPost :: Reader Env (IO Post)
+createPost = do
+    texts <- asks getCaptions
+    files <- asks getPictures
+    mode  <- asks getWipeMode
+
+    needSage <- asks isNeedAppendSage
+    needFile <- asks isNeedAppendPics
+
+    board  <- asks getBoard
+    thread <- asks getThread
+
+    return $ do
+        pic <- if needFile && length files > 0
+                then get_random files >>= pure . Just
+                else pure Nothing
+        text' <- get_random texts
+
+        case mode of
+          SingleThread ->
+            maybe (error "Ошибка инициализации.")
+                  (\t -> pure $ Post (PostMeta board t) Nothing text' pic needSage)
+                  thread
+          Shrapnel -> do
+            t <- getRandomThreadE board
+            pure $ Post (PostMeta board t) Nothing text' pic needSage
+
+getRandomThreadE :: String -> IO ThreadNum
+getRandomThreadE board = do
+    catalog <- getThreads board
+    case catalog of
+      Nothing -> die "Фатальная ошибка. Не удалось получить каталог тредов."
+      Just catalog' -> get_random $ _threads catalog'
+                       >>= pure . _num
+
+createPosts :: Reader Env (IO [Post])
+createPosts = do
+    proxyMode <- asks getProxyMode
+    config <- ask
+    case proxyMode of
+      NoProxy -> return $ do
+        single <- runReader createPost config
+        pure [single]
+      WithProxy -> do
+        proxies <- asks getProxies
+        times <- asks getThreadsCount >>= pure . min (length proxies)
+        
+        return . mapM (\p -> add_proxy p <$> runReader createPost config)
+                      $ take times proxies
+
+performPostR :: Post -> Reader Env (IO MakabaResponse)
+performPostR post = do
+    antiCaptchaKey <- asks getAntiCaptchaKey
+    antiCaptchaType <- asks getAntiCaptchaType 
+
+    let captchaMeta = CaptchaMeta antiCaptchaType
+                                  antiCaptchaKey 
+                                  (post_proxy post)
+    return $ do
+        putStrLn $ show captchaMeta <> "получение капчи..."
+        captcha <- getCaptcha captchaMeta
+        let response = performPost post <$> captcha
+        
+        let with = MakabaResponse (post_proxy post)
+        case response of
+            Nothing -> pure $ 404 `with` "ошибка получения капчи."
+            Just makabaResponse -> makabaResponse
+
+{-# INLINE performSingle #-}
+performSingle :: Post -> Reader Env (IO MakabaResponse)
+performSingle post = do
+    config <- ask
+    return $ do
+        response <- runReader (performPostR post) config
+        putStrLn . show $ response
+        pure response
+
+{-# INLINE isProxyBanned #-}
+isProxyBanned MakabaResponse{..} = err_code `elem` badCodes
+
+{-# INLINE filterBanned #-}
+filterBanned :: Static -> [Proxy] -> Static
+filterBanned old bad =
+    let good = filter (not . (`elem` bad)) (proxies old)
+    in old { proxies = good } 
+
+performPosts :: Env -> IO Env
+performPosts env@(Env pars stat) = do
+    posts <- runReader createPosts env
+    let postsR = map performSingle posts
+    responses <- mapConcurrently (\r -> runReader r env) postsR
+
+    let (Just banned) = sequence . map current_proxy . filter isProxyBanned
+                        $ responses
+    let newStatic = filterBanned stat banned
+
+    putStrLn $ "[filter] плохих проксей: " <> (show . length $ banned)
+    return $ Env pars newStatic
+
+mainLoop :: Reader Env (IO ())
+mainLoop = do
+    times     <- asks getTimesCount
+    delayTime <- asks getDelayCount
+    env       <- ask
+
+    let modifiedEnv = do
+            if times <= 0
+                then die "[quit] завершено."
+                else pure ()
+
+            nenv@(Env pars stat) <- performPosts env
+
+            if (getProxyMode nenv == WithProxy) && (null . getProxies $ nenv)
+                then die "[quit] все проксичи умерли, помянем."
+                else do
+                    secs <- randomRIO (delayTime, delayTime + 3)
+                    threadDelay $ secs * 1000000
+                    let newPars = pars { times_count = times - 1 }
+
+                    pure (Env newPars stat)
+    return $ do
+        menv <- modifiedEnv
+        runReader mainLoop menv
 
 {-# INLINE traumatic #-}
 traumatic :: Static -> InitParams -> IO ()
 traumatic static params = do
     putStrLn . show $ params
-    main_loop $ Config params static 
+    runReader mainLoop $ Env params static
 

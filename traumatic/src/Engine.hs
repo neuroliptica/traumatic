@@ -87,9 +87,9 @@ data MakabaResponse = MakabaResponse
 instance Show MakabaResponse where
     show MakabaResponse{..} =
         "[" <> ip <> "] [" <> show err_code <> "]: " <> message
-        where ip = maybe "no_proxy" (\Proxy{..} ->
-                   (BS.unpackChars proxyHost) <> ":" <> show proxyPort)
-                       $ current_proxy
+        where ip = maybe "no_proxy"
+                         (\Proxy{..} -> BS.unpackChars proxyHost <> ":" <> show proxyPort)
+                         current_proxy
 
 -- assign field value in multipart body.
 infixr 9 <=>
@@ -148,7 +148,7 @@ performPost Post{..} (Solved captcha_id captcha_value) = do
 
     -- If we have file then attach, otherwise will ignore.
     let
-      image_to_post =
+      image_to_post = 
         (\(cont, name') -> partFileRequestBody "formimages[]" name' $ RequestBodyLBS cont)
             <$> maybeFile
     let
@@ -157,14 +157,12 @@ performPost Post{..} (Solved captcha_id captcha_value) = do
 
     request <- formDataBody final_body base_request
     response <- perform request
-    
-    let
-      with =
-        MakabaResponse post_proxy
+
+    let with = MakabaResponse post_proxy
     -- Check 2ch server response.
-    either (\_ -> pure $ 404 `with` "запрос не удался, сервер вернул ошибку.")
-           (postResponseHandler with)
-               $ response
+    maybe (pure $ 404 `with` "запрос не удался, сервер вернул ошибку.")
+          (postResponseHandler with)
+          response
 
 data Thread = Thread
   { _comment     :: !String
@@ -200,13 +198,10 @@ instance FromJSON Catalog where
 
 getThreads :: String -> IO (Maybe Catalog)
 getThreads board' = do
-    let
-      link =
-        "https://2ch.hk/" <> board' <> "/threads.json"
+    let link = "https://2ch.hk/" <> board' <> "/threads.json"
     request <- parseRequest link
     response <- perform request
-    pure $
-        either (\_ -> Nothing)
-               (\x -> decode x :: Maybe Catalog)
-                  $ response
+    return $ do
+        catalog <- response
+        decode catalog :: Maybe Catalog
 

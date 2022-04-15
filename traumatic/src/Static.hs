@@ -62,13 +62,10 @@ buildStatic :: IO (Maybe Static)
 buildStatic = do
     config <- init
     let static_config = toStatic <$> config
-    case static_config of
-      Left msg -> do
-        putStrLn $ "[init] еггог, " <> msg
-        pure Nothing
-      Right st -> do
-        putStrLn "[init] Ok, начальные данные успешно инициализированы."
-        pure . Just $ st
+    let init_ok = "[init] Ok, начальные данные успешно инициализированы."
+    maybe (pure Nothing)
+          (\st -> putStrLn init_ok >> (pure $ Just st)) 
+          static_config
 
 get_proxy :: IO [String]
 get_proxy = do
@@ -110,7 +107,7 @@ get_captions = do
                  else Just . filter pred . splitOn "\n\n" $ content
                    where pred x = ((not . null $ x) && (x /= "\n"))
 
-init :: IO (Either String Init)
+init :: IO (Maybe Init)
 init = do
     proxy <- get_proxy
     pics  <- get_pictures
@@ -119,7 +116,8 @@ init = do
     let conf = Init <$> Just proxy
                     <*> caps
                     <*> Just pics
-    pure $
-      maybe (Left $ _caps <> " не найден либо пуст. Ошибка инициализации.")
-            Right $ conf
+    let emptyConf = "[init] Error, " <> _caps <>
+                    " не найден либо пуст. Ошибка инициализации."
+
+    maybe (putStrLn emptyConf >> pure Nothing) (pure . Just) conf
 

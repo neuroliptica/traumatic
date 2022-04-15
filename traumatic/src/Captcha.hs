@@ -51,10 +51,14 @@ base_captcha = "https://2ch.life/api/captcha/2chcaptcha/"
 
 -- * helper utils.
 {-# INLINE perform #-}
-perform :: Request -> IO (Either HttpException LBS.ByteString)
+perform :: Request -> IO (Maybe LBS.ByteString)
 perform req = do
     manager <- newManager tlsManagerSettings
-    try (httpLbs req manager >>= pure . responseBody)
+    response <- try (httpLbs req manager >>= pure . responseBody)
+                     :: IO (Either HttpException LBS.ByteString)
+
+    either (\_ -> pure Nothing)
+           (\x -> pure . Just $ x) response
 
 -- * main captcha types.
 data CaptchaMeta = CaptchaMeta
@@ -91,12 +95,9 @@ getCaptchaId :: Maybe Proxy -> IO (Maybe MakabaCaptchaAnswer)
 getCaptchaId proxy' = do
     request <- parseRequest $ base_captcha <> "id"
     response <- perform $ request { proxy = proxy' }
-    let
-      result = 
-        (\x -> decode x :: Maybe MakabaCaptchaAnswer)
-            <$> response
-    either (\_ -> pure Nothing)
-           (pure . id) $ result
+    return $ do
+        result <- response
+        decode result :: Maybe MakabaCaptchaAnswer
 
 solveCaptcha :: CaptchaMeta -> LBS.ByteString -> IO String
 solveCaptcha meta image = do
@@ -115,16 +116,17 @@ getCaptcha :: CaptchaMeta -> IO (Maybe Solved)
 getCaptcha meta = do
     id_answer <- getCaptchaId (captcha_proxy meta)
     case id_answer of
-      Nothing -> pure Nothing    
+      Nothing -> return Nothing
       Just MakabaCaptchaAnswer{..} -> do
         request <- parseRequest $ base_captcha <> "show?id=" <> captcha_id
-        result <- perform (request { proxy = (captcha_proxy meta) })
-                    >>= pure . (solveCaptcha meta <$>)
-        either (\_ -> pure Nothing)
-               (\res -> res >>= pure . Just . Solved captcha_id)
-                   $ result
+        response <- perform (request { proxy = (captcha_proxy meta) })
+        solvedMaybe <- maybe (pure Nothing) (\x -> solveCaptcha meta x >>= pure . Just) response
 
--------------------- captcha solvers
+        return $ do
+            solved <- solvedMaybe
+            pure $ Solved captcha_id solved
+
+-- | captcha solvers
 --- RuCaptcha:
 
 data RuCaptchaAnswer = RuCaptchaAnswer
@@ -148,28 +150,23 @@ solver_RuCaptcha_sendPost meta image = do
             ]
     request <- parseRequest "http://rucaptcha.com/in.php" >>= formDataBody body 
     response <- perform $ request { proxy = (captcha_proxy meta) }
-    let
-      result = 
-        (\x -> decode x :: Maybe RuCaptchaAnswer)
-            <$> response
-    either (\_ -> pure Nothing)
-           (pure . id) $ result
+
+    return $ do
+        result <- response
+        decode result :: Maybe RuCaptchaAnswer
 
 -- check solver status.
 solver_RuCaptcha_sendGet :: CaptchaMeta -> String -> IO (Maybe RuCaptchaAnswer)
 solver_RuCaptcha_sendGet meta rucaptcha_id = do
-    let
-      link = 
-        "http://rucaptcha.com/res.php?key=" <>
-         (captcha_key meta) <> "&action=get&json=1&id=" <> rucaptcha_id
+    let link =  "http://rucaptcha.com/res.php?key=" <> (captcha_key meta) <> 
+                "&action=get&json=1&id="            <> rucaptcha_id
+
     request <- parseRequest link 
     response <- perform $ request { proxy = (captcha_proxy meta) }
-    let
-      result =
-        (\x -> decode x :: Maybe RuCaptchaAnswer)
-            <$> response
-    either (\_ -> pure Nothing)
-           (pure . id) $ result
+
+    return $ do
+        result <- response
+        decode result :: Maybe RuCaptchaAnswer
 
 -- main check loop.
 solver_RuCaptcha_handler :: CaptchaMeta -> RuCaptchaAnswer -> IO String
@@ -210,8 +207,9 @@ solver_RuCaptcha_handler meta ans@RuCaptchaAnswer{..} = do
 solver_RuCaptcha :: CaptchaMeta -> LBS.ByteString -> IO String
 solver_RuCaptcha meta image = do
     post_answer <- solver_RuCaptcha_sendPost meta image
-    maybe (pure "failed")
-          (\ans -> putStrLn (show meta <> "капча отправлена на решение...")
-                        >> solver_RuCaptcha_handler meta ans)
-                            $ post_answer
+    case post_answer of
+      Nothing -> pure "failed"
+      Just ans -> do
+        putStrLn (show meta <> "капча отправлена на решение...")
+        solver_RuCaptcha_handler meta ans
 
