@@ -4,12 +4,13 @@
 
 module Engine
   ( PostMeta(..)
+  , PostEnv(..)
   , Post(..)
   , MakabaResponse(..)
-  -- * main perform function.
-  , performPost
   , Thread(..)
   , Catalog(..)
+
+  , performPost
   , getThreads
   ) where
 
@@ -27,12 +28,27 @@ import Data.Aeson   (FromJSON(..), withObject, decode, (.:))
 import GHC.Generics (Generic)
 
 import Captcha
+import Control.Monad.Reader
 
 import Prelude hiding (file)
 
--- * consts.
+infixr 9 <=>
+(<=>) = partBS
+
 {-# INLINE base_post #-}
 base_post = "https://2ch.life/makaba/posting.fcgi?json=1"
+
+{-# INLINE base_body #-}
+base_body = [
+        "task"            <=> "post",
+        "usercode"        <=> none,
+        "code"            <=> none,
+        "captcha_type"    <=> "2chcaptcha",
+        "oekaki_image"    <=> none,
+        "oekaki_matadata" <=> none,
+        "makaka_id"       <=> none,
+        "makaka_answer"   <=> none
+    ]
 
 {-# INLINE none #-}
 none :: BS.ByteString
@@ -42,21 +58,22 @@ none = ""
 ext :: String -> String
 ext = ('.':) . reverse . fst . break (== '.') . reverse
 
--- * main types.
 data PostMeta = PostMeta
   { board  :: !String
   , thread :: !String }
   deriving Show
 
 data Post = Post
-  { meta       :: PostMeta
-  , post_proxy :: Maybe Proxy
-  , text       :: !String 
-  , file       :: Maybe FilePath
-  , post_sage  :: !Bool }
+  { meta        :: PostMeta
+  , post_proxy  :: Maybe Proxy
+  , text        :: !String 
+  , files       :: ![FilePath]
+  , post_sage   :: !Bool }
   deriving Show
 
--- * 2ch api json response types.
+data PostEnv = PostEnv Post Solved
+    deriving Show
+
 data PostOk = PostOk
   { empty_error :: Maybe Int
   , status      :: !String
@@ -91,9 +108,16 @@ instance Show MakabaResponse where
                          (\Proxy{..} -> BS.unpackChars proxyHost <> ":" <> show proxyPort)
                          current_proxy
 
--- assign field value in multipart body.
-infixr 9 <=>
-(<=>) = partBS
+{-# INLINE makeCont #-}
+makeCont :: FilePath -> IO (LBS.ByteString, FilePath)
+makeCont file = do
+    name <- genFilename >>= pure . (<> ext file)
+    cont <- LB.readFile file
+    pure (cont, name)
+
+{-# INLINE contToBody #-}
+contToBody (cont, name) =
+    partFileRequestBody "formimages[]" name $ RequestBodyLBS cont
 
 postResponseHandler
                  :: (Int -> String -> MakabaResponse)
@@ -111,58 +135,62 @@ postResponseHandler with response = do
             Nothing ->
               404 `with` "неизвестная ошибка, пост не отправлен."
 
--- * main requests.
-performPost :: Post -> Solved -> IO MakabaResponse 
-performPost Post{..} (Solved captcha_id captcha_value) = do
-    base_request' <- parseRequest base_post
-    let base_request = base_request'
-                       { proxy = post_proxy }
-    let base_body = [
-            "task"            <=> "post",
-            "board"           <=> (BS.packChars . board $ meta),
-            "thread"          <=> (BS.packChars . thread $ meta),
-            "usercode"        <=> none,
-            "code"            <=> none,
-            "captcha_type"    <=> "2chcaptcha",
-            "oekaki_image"    <=> none,
-            "oekaki_matadata" <=> none,
-            "email"           <=> (if post_sage then (BS.packChars "sage") else none),
-            "comment"         <=> (BS.packChars text),
-            "makaka_id"       <=> none,
-            "makaka_answer"   <=> none,
+getFiles (PostEnv Post {..} _) = files
+getPostProxy (PostEnv Post {..} _) = post_proxy
 
-            "2chcaptcha_id"    <=> (BS.packChars captcha_id),
-            "2chcaptcha_value" <=> (BS.packChars captcha_value),
+getBoardBS (PostEnv Post {..} _) = BS.packChars . board $ meta
+getThreadBS (PostEnv Post {..} _) = BS.packChars . thread $ meta
+getSageBS (PostEnv Post {..} _) = BS.packChars $ if post_sage then "sage" else ""
+getCommentBS (PostEnv Post {..} _) = BS.packChars text
 
-            "comment"         <=> (BS.packChars text)
+getCaptchaIdBS (PostEnv _ (Solved captcha_id _)) = BS.packChars captcha_id
+getCaptchaValueBS (PostEnv _ (Solved _ captcha_value)) = BS.packChars captcha_value
+
+performPost :: Reader PostEnv (IO MakabaResponse)
+performPost = do
+    board <- asks getBoardBS
+    thread <- asks getThreadBS
+    sage <- asks getSageBS
+    comment <- asks getCommentBS
+
+    captcha_id <- asks getCaptchaIdBS
+    captcha_value <- asks getCaptchaValueBS
+
+    files <- asks getFiles
+    postProxy <- asks getPostProxy
+
+    let basePostBody = base_body ++ [ -- | several default body's fields.
+            "board"            <=> board,
+            "thread"           <=> thread,
+            "email"            <=> sage,
+            "comment"          <=> comment,
+            "2chcaptcha_id"    <=> captcha_id,
+            "2chcaptcha_value" <=> captcha_value
             ]
 
-    maybeFile <- do
-        case file of
-            Nothing ->
-              pure Nothing
-            Just file' -> do
-              name' <- genFilename >>= pure . (<> ext file')
-              cont <- LB.readFile file'
-              pure $ Just (cont, name')
+    return $ do
+        baseRequest <- (\req -> req { proxy = postProxy }) <$> parseRequest base_post
+        let maybeFiles = do
+                maybeFilesM <- if null files
+                                then Nothing
+                                else Just files
+                return $ do
+                    conts <- mapM makeCont maybeFilesM
+                    pure $ map contToBody conts
 
-    -- If we have file then attach, otherwise will ignore.
-    let
-      image_to_post = 
-        (\(cont, name') -> partFileRequestBody "formimages[]" name' $ RequestBodyLBS cont)
-            <$> maybeFile
-    let
-      final_body = 
-        maybe base_body (\part -> part : base_body) image_to_post
+        parts <- maybe (pure Nothing)
+                       (\x -> x >>= pure . Just) maybeFiles
+        let finalBody = maybe basePostBody
+                              (<> basePostBody) parts
 
-    request <- formDataBody final_body base_request
-    response <- perform request
+        request <- formDataBody finalBody baseRequest
+        response <- perform request
 
-    let with = MakabaResponse post_proxy
-    -- Check 2ch server response.
-    maybe (pure $ 404 `with` "запрос не удался, сервер вернул ошибку.")
-          (postResponseHandler with)
-          response
+        let with = MakabaResponse postProxy
+        -- Check 2ch server response.
+        maybe (pure $ 404 `with` "запрос не удался, сервер вернул ошибку.")
+              (postResponseHandler with)
+              response
 
 data Thread = Thread
   { _comment     :: !String

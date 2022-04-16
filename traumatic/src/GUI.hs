@@ -86,9 +86,7 @@ labelWithDefault t = do
     labelSetXalign label labelXalignDefault
     pure label
 
--- * setting params:
-
---choose_mode :: MonadIO m => [(WipeMode, m CheckButton)] -> m WipeMode
+{-# INLINE choose_mode #-}
 choose_mode ((f,s):xs) = do
     state <- toggleButtonGetActive s
     if state || xs == []
@@ -174,16 +172,30 @@ guiMain static = do
     ------------
     -- * post settings
 
-    settings_frame <- frameNew $ Just " Пост:"
+    settings_frame <- frameNew Nothing
     settings_framebox <- boxNew OrientationHorizontal 1
+    boxSetHomogeneous settings_framebox True
     containerAdd settings_frame settings_framebox
     containerAdd first_framebox settings_frame
 
-    settings_sage <- checkButtonNewWithLabel "Sage"
-    settings_pics <- checkButtonNewWithLabel "Картинка (./res/pictures/)"
 
-    mapM_ (containerAdd settings_framebox)
-        [ settings_pics, settings_sage ]
+    check_settings_frame <- frameNew $ Just " Пост:"
+    check_settings_framebox <- boxNew OrientationHorizontal 1
+    containerAdd check_settings_frame check_settings_framebox
+    containerAdd settings_framebox check_settings_frame
+
+    settings_sage <- checkButtonNewWithLabel "Sage"
+    containerAdd check_settings_framebox settings_sage
+    --settings_pics <- checkButtonNewWithLabel "Картинка (./res/pictures/)"
+    
+    pics_frame <- frameNew $ Just " Картинки (./res/pictures/):"
+    pics_framebox <- boxNew OrientationHorizontal 1
+    containerAdd settings_framebox pics_frame
+    containerAdd pics_frame pics_framebox
+
+    pics_spin <- spinButtonNewWithRange 0 4 1
+    containerAdd pics_framebox pics_spin
+    
     ------------
 
     ------------
@@ -289,7 +301,7 @@ guiMain static = do
                 <*> pure "b"
                 <*> pure Nothing
                 <*> toggleButtonGetActive settings_sage
-                <*> toggleButtonGetActive settings_pics
+                <*> get_spin pics_spin --toggleButtonGetActive settings_pics
                 <*> get_spin thread_spin
                 <*> get_spin count_spin
                 <*> get_spin delay_spin

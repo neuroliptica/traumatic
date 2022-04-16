@@ -44,7 +44,7 @@ data InitParams = InitParams
   , init_board        :: !String
   , init_thread       :: Maybe String
   , append_sage       :: !Bool
-  , append_pic        :: !Bool
+  , pics_count        :: !Int
   , threads_count     :: !Int
   , times_count       :: !Int
   , delay_count       :: !Int
@@ -58,7 +58,7 @@ instance Show InitParams where
         "\n|\tДоска = "        <> init_board                              <>
         "\n|\tТред = "         <> maybe ("Вся доска.") id init_thread     <>
         "\n|\tСажа = "         <> (if append_sage then "Да." else "Нет.") <>
-        "\n|\tС картинкой = "  <> (if append_pic then "Да." else "Нет.")  <>
+        "\n|\tКартинок = "     <> show pics_count                         <>
         "\n|\tАнти капча = "   <> show anti_captcha_type                  <>
         "\n|\tПрокси = "       <> show proxy_mode                         <>
         "\n|\tПотоков = "      <> show threads_count                      <>
@@ -85,7 +85,7 @@ defaultInit = InitParams
               { anti_captcha_type = RuCaptcha
               , proxy_mode        = WithProxy
               , append_sage       = False
-              , append_pic        = False
+              , pics_count        = 0
               , threads_count     = 1
               , times_count       = 1
               , delay_count       = 0
@@ -112,7 +112,7 @@ instance Semigroup InitParams where
             , init_board        = choose_field init_board
             , init_thread       = choose_field init_thread 
             , append_sage       = choose_field append_sage
-            , append_pic        = choose_field append_pic
+            , pics_count        = choose_field pics_count
             , threads_count     = choose_field threads_count
             , times_count       = choose_field times_count
             , delay_count       = choose_field delay_count
@@ -142,8 +142,8 @@ appendInitKey (key, value) =
         maybe mempty (\x -> mempty { append_sage = x } )
                      $ (readMaybe value :: Maybe Bool)
       "pics" ->
-        maybe mempty (\x -> mempty { append_pic = x } )
-                     $ (readMaybe value :: Maybe Bool)
+        maybe mempty (\x -> mempty { pics_count = x } )
+                     $ (readMaybe value :: Maybe Int)
       "threads" ->
         maybe mempty (\x -> mempty { threads_count = x } )
                      $ (readMaybe value :: Maybe Int)

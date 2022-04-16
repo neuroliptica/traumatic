@@ -39,7 +39,7 @@ getCaptions (Env _ Static {..}) = captions
 getPictures (Env _ Static {..}) = pictures
 getProxies (Env _ Static {..}) = proxies
 
-isNeedAppendPics (Env InitParams {..} _) = append_pic
+getPicsCount (Env InitParams {..} _) = pics_count
 isNeedAppendSage (Env InitParams {..} _) = append_sage
 
 getBoard (Env InitParams {..} _) = init_board
@@ -63,25 +63,23 @@ createPost = do
     mode  <- asks getWipeMode
 
     needSage <- asks isNeedAppendSage
-    needFile <- asks isNeedAppendPics
+    filesC <- asks getPicsCount
 
     board  <- asks getBoard
     thread <- asks getThread
 
     return $ do
-        pic <- if needFile && length files > 0
-                then get_random files >>= pure . Just
-                else pure Nothing
+        pics <- replicateM filesC (get_random files) 
         text' <- get_random texts
 
         case mode of
           SingleThread ->
             maybe (error "Ошибка инициализации.")
-                  (\t -> pure $ Post (PostMeta board t) Nothing text' pic needSage)
+                  (\t -> pure $ Post (PostMeta board t) Nothing text' pics needSage)
                   thread
           Shrapnel -> do
             t <- getRandomThreadE board
-            pure $ Post (PostMeta board t) Nothing text' pic needSage
+            pure $ Post (PostMeta board t) Nothing text' pics needSage
 
 getRandomThreadE :: String -> IO ThreadNum
 getRandomThreadE board = do
@@ -117,8 +115,11 @@ performPostR post = do
     return $ do
         putStrLn $ show captchaMeta <> "получение капчи..."
         captcha <- getCaptcha captchaMeta
-        let response = performPost post <$> captcha
-        
+
+        let response = do
+                postEnv <- PostEnv post <$> captcha
+                return $ runReader performPost postEnv
+
         let with = MakabaResponse (post_proxy post)
         case response of
             Nothing -> pure $ 404 `with` "ошибка получения капчи."
