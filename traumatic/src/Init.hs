@@ -11,6 +11,7 @@ module Init
   ) where
 
 import Text.Read (readMaybe)
+import Parser
 
 data AntiCaptchaType
   = RuCaptcha
@@ -66,18 +67,8 @@ instance Show InitParams where
         "\n|\tПерерыв сек. = " <> show delay_count                        <>
         "\n-----------------------------------"
 
-parseArg :: String -> Maybe (String, String)
-parseArg arg =
-    let (key, value) = break (== '=') arg in
-    if null value || (null . tail $ value)
-      then Nothing
-      else Just (format key, tail value)
-        where
-        {-# INLINE format #-}
-        format :: String -> String
-        format [] = []
-        format (x:xs) | x /= '-'  = x:xs
-                      | otherwise = format xs
+{-# INLINE parseArg #-}
+parseArg s = fst <$> runParser flag s
 
 {-# INLINE defaultInit #-}
 defaultInit :: InitParams

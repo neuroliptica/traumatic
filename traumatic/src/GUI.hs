@@ -12,6 +12,7 @@ import GI.Gtk as Gtk (main, init)
 import Control.Concurrent (forkIO)
 
 import Control.Monad.IO.Class (MonadIO)
+import Control.Applicative    (many)
 import GHC.Int                (Int32)
 import Data.Text              (Text, pack, unpack)
 import Data.Char              (isDigit)
@@ -19,6 +20,8 @@ import Data.Char              (isDigit)
 import Init 
 import Traumatic
 import Static (Static(..))
+
+import Parser
 
 -- * consts
 {-# INLINE labelXalignDefault #-}
@@ -33,11 +36,9 @@ imageHeader = "./res/rozen.png"
 main_window :: MonadIO m => Int32 -> Int32 -> m Window
 main_window w h = do
     win <- windowNew WindowTypeToplevel
-    -- * default main window settings:
     windowSetTitle       win "traumatic"
     windowSetDefaultSize win w h
     windowSetPosition    win WindowPositionCenter
-    -- * callback:
     onWidgetDestroy      win mainQuit
     pure                 win
 
@@ -72,6 +73,30 @@ set_toggled_three master s1 s2 s3 = do
 {-# INLINE get_field #-}
 get_field :: MonadIO m => Entry -> m Text
 get_field ent = getEntryText ent
+
+getThread :: Entry -> IO (Maybe String)
+getThread ent = do
+    value <- unpack <$> get_field ent
+    return $ do
+        (thread', _) <- runParser parseThread value
+        if null thread'
+          then Nothing
+          else Just thread'
+
+getKey :: Entry -> IO String
+getKey ent = do
+    value <- unpack <$> get_field ent
+    let (Just (key, _)) = runParser (many $ notChar ' ') value
+    pure key
+
+getBoard :: Entry -> IO String
+getBoard ent = do
+    value <- getKey ent
+    if null value
+      then do
+        putStrLn "[init] warn, доска не указана явно, выбираем /b/."
+        pure "b"
+      else pure value
 
 {-# INLINE get_spin #-}
 get_spin :: MonadIO m => SpinButton -> m Int
@@ -186,7 +211,6 @@ guiMain static = do
 
     settings_sage <- checkButtonNewWithLabel "Sage"
     containerAdd check_settings_framebox settings_sage
-    --settings_pics <- checkButtonNewWithLabel "Картинка (./res/pictures/)"
     
     pics_frame <- frameNew $ Just " Картинки (./res/pictures/):"
     pics_framebox <- boxNew OrientationHorizontal 1
@@ -287,56 +311,40 @@ guiMain static = do
     main_button <- buttonNewWithLabel "Пуск"
     containerAdd buttons_framebox main_button
 
-    -- * stop button
-    --stop_button <- buttonNewWithLabel "Стоп"
-    --containerAdd buttons_framebox stop_button
     -----------------
 
     onButtonClicked main_button $ do
         params <-
             InitParams
+                -- | wipe mode
                 <$> choose_mode [(SingleThread, mode_SingleThread), (Shrapnel, mode_Shrapnel)]               
+                -- | anti captcha type
                 <*> pure RuCaptcha -- other not implemented yet.
+                -- | proxy mode
                 <*> choose_mode [(NoProxy, proxy_NoProxy), (WithProxy, proxy_WithProxy)]
-                <*> pure "b"
-                <*> pure Nothing
+                -- | board
+                <*> getBoard board_entry 
+                -- | thread id
+                <*> getThread thread_entry
+                -- | to append sage
                 <*> toggleButtonGetActive settings_sage
-                <*> get_spin pics_spin --toggleButtonGetActive settings_pics
+                -- | how many pics to apppend
+                <*> get_spin pics_spin 
+                -- | how many proxies in parallel
                 <*> get_spin thread_spin
+                -- | iterations count
                 <*> get_spin count_spin
+                -- | delay between iterations
                 <*> get_spin delay_spin
-                <*> (get_field key_entry >>= pure . unpack)
+                -- | anti captcha key
+                <*> getKey key_entry
 
-        params' <-
-            case wipe_mode params of
-                SingleThread ->
-                  (\x -> params { init_thread = Just x })
-                      <$> (get_field thread_entry >>= pure . unpack)
-                _ ->
-                  pure params
-        custom_board <-
-           get_field board_entry >>= pure . unpack
-         
-        let
-          final_params =
-            if null custom_board
-              then params'
-              else params' { init_board = custom_board }
-
-        let thread' = init_thread final_params
-        let
-          f = 
-            (\_ ->
-             case thread' of
-              Just t ->
-                if null t || any (not . isDigit) t
-                  then do
-                    putStrLn "Ошибка инициализации, тред указан не верно."
-                    pure ()
-                  else do
-                    traumatic static final_params
-              Nothing ->
-                traumatic static final_params )
+        let f = (\_ ->
+                if (wipe_mode params == SingleThread) && (null . init_thread $ params)
+                  then putStrLn "[init] error, ошибка инициализации, тред указан не верно."
+                  else traumatic static $ if wipe_mode params == Shrapnel
+                                            then params { init_thread = Nothing }
+                                            else params )
 
         -- so GUI won't stack
         forkIO $ f () 

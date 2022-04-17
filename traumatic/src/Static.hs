@@ -19,6 +19,11 @@ import System.Directory (doesFileExist, doesDirectoryExist, getDirectoryContents
 
 import Prelude hiding (init, pairs)
 
+import Control.Applicative
+import Control.Monad (mapM)
+
+import Parser
+
 data Init = Init
   { proxy_list   :: ![String]
   , caption_list :: ![String]
@@ -31,32 +36,36 @@ data Static = Static
   , pictures :: ![FilePath] }
   deriving Show
 
-{-# INLINE _caps #-}
-_caps = "./res/captions.conf"
-
-{-# INLINE _pics #-}
-_pics = "./res/pictures/"
-
-{-# INLINE _proxy #-}
+_caps  = "./res/captions.conf"
+_pics  = "./res/pictures/"
 _proxy = "./res/proxy.conf"
 
-{-# INLINE proxy_pair #-}
-proxy_pair :: String -> (String, String)
-proxy_pair xs = let (port, ip) = break (\x -> x == ':') . reverse $ xs
-                in (reverse . tail $ ip, reverse port)
+parseProxy :: String -> Maybe Proxy
+parseProxy str = do
+    (adr@(IP _ _ _ _ p), _) <- runParser ip str
+    let ipAdr = address adr
+    if null p
+      then Nothing
+      else Just $ Proxy (packChars ipAdr) (read p :: Int)
 
-{-# INLINE proxy_filter #-}
-proxy_filter :: (String, String) -> Maybe (String, Int)
-proxy_filter (ip, port) =
-    if all isDigit port
-      then Just (ip, read port)
-      else Nothing
+parseAuthProxy :: String -> Maybe Proxy
+parseAuthProxy str = do
+    (adr@(Auth login pass adr_ip@(IP _ _ _ _ p)), _) <- runParser auth_ip str
+    let ipAdr = address adr_ip
+    if null p
+      then Nothing
+      else Just $ Proxy (packChars $ login <> ":" <> pass <> "@" <> ipAdr)
+                        (read p :: Int)
 
-toStatic :: Init -> Static 
-toStatic Init{..} = Static proxy' caption_list pics
-    where pairs = filter (not . null) . map (proxy_filter . proxy_pair) $ proxy_list
-          Just proxy' = map (\(ip, port) -> Proxy (packChars ip) port) <$> sequence pairs
-          pics = map (_pics <>) pics_list
+parseP str = parseProxy str <|> parseAuthProxy str
+
+toStatic :: Init -> Static
+toStatic Init{..} =
+    let
+        Just proxy = sequence . filter (not . null) $ map parseP proxy_list
+        pics       = map (_pics <>) pics_list
+    in
+        Static proxy caption_list pics
 
 buildStatic :: IO (Maybe Static)
 buildStatic = do
